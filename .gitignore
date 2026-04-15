@@ -5,3 +5,5 @@ __pycache__/
 faiss_index.bin
 chunks.pkl
 bm25_index.pkl
+.elasticbeanstalk/
+ven/
