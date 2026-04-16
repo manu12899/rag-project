@@ -31,7 +31,8 @@ vectorstore = FAISS.from_documents(chunks, embeddings)
 tokenized = [t.lower().split() for t in texts]
 bm25 = BM25Okapi(tokenized)
 
-llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+import os
+llm = ChatGroq(api_key=os.environ.get("GROQ_API_KEY"), model="llama-3.3-70b-versatile", temperature=0)
 print("Setup complete!")
 
 def hybrid_search(query, top_k=3):
