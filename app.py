@@ -1,8 +1,3 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from langchain_groq import ChatGroq
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
 from langchain_groq import ChatGroq
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
@@ -12,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
 import numpy as np
+import os
 
 load_dotenv()
 
@@ -30,10 +26,11 @@ vectorstore = FAISS.from_documents(chunks, embeddings)
 
 tokenized = [t.lower().split() for t in texts]
 bm25 = BM25Okapi(tokenized)
-
-import os
-llm = ChatGroq(api_key=os.environ.get("GROQ_API_KEY"), model="llama-3.3-70b-versatile", temperature=0)
 print("Setup complete!")
+
+def get_llm():
+    api_key = os.environ.get("GROQ_API_KEY")
+    return ChatGroq(api_key=api_key, model="llama-3.3-70b-versatile", temperature=0)
 
 def hybrid_search(query, top_k=3):
     retriever = vectorstore.as_retriever(search_kwargs={"k": top_k * 2})
@@ -63,6 +60,7 @@ def home():
 
 @app.post("/ask")
 def ask(request: QueryRequest):
+    llm = get_llm()
     query = request.question
     docs = hybrid_search(query)
     context = "\n".join([d.page_content for d in docs])
