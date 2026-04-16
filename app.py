@@ -3,16 +3,20 @@ from pydantic import BaseModel
 from langchain_groq import ChatGroq
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_groq import ChatGroq
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import FakeEmbeddings
 from rank_bm25 import BM25Okapi
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from pydantic import BaseModel
 import numpy as np
 
 load_dotenv()
 
 app = FastAPI()
 
-# ── Setup ──────────────────────────────────────────────
 print("Setting up indexes...")
 with open("sample.txt", "r") as f:
     text = f.read()
@@ -21,11 +25,7 @@ splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20)
 chunks = splitter.create_documents([text])
 texts = [c.page_content for c in chunks]
 
-embeddings = embeddings = HuggingFaceEmbeddings(
-    model_name="all-MiniLM-L6-v2",
-    model_kwargs={"device": "cpu"},
-    encode_kwargs={"batch_size": 8}
-)
+embeddings = FakeEmbeddings(size=384)
 vectorstore = FAISS.from_documents(chunks, embeddings)
 
 tokenized = [t.lower().split() for t in texts]
@@ -34,7 +34,6 @@ bm25 = BM25Okapi(tokenized)
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 print("Setup complete!")
 
-# ── Hybrid Search ──────────────────────────────────────
 def hybrid_search(query, top_k=3):
     retriever = vectorstore.as_retriever(search_kwargs={"k": top_k * 2})
     dense_docs = retriever.invoke(query)
@@ -54,36 +53,6 @@ def hybrid_search(query, top_k=3):
     ranked = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
     return [r["doc"] for r in ranked[:top_k]]
 
-# ── Agents ─────────────────────────────────────────────
-def retrieval_agent(query):
-    docs = hybrid_search(query)
-    return "\n".join([d.page_content for d in docs])
-
-def summarization_agent(context, query):
-    prompt = f"""You are a summarization expert.
-Summarize the key facts from this context that answer the query.
-Keep it concise and clear.
-
-Context: {context}
-Query: {query}
-
-Summary:"""
-    return llm.invoke(prompt).content
-
-def factcheck_agent(answer, query):
-    docs = hybrid_search(query)
-    evidence = "\n".join([d.page_content for d in docs])
-    prompt = f"""You are a fact-checking expert.
-Check if this answer is supported by the evidence.
-Reply with SUPPORTED or UNSUPPORTED and a short reason.
-
-Answer: {answer}
-Evidence: {evidence}
-
-Verdict:"""
-    return llm.invoke(prompt).content
-
-# ── API Routes ─────────────────────────────────────────
 class QueryRequest(BaseModel):
     question: str
 
@@ -94,11 +63,11 @@ def home():
 @app.post("/ask")
 def ask(request: QueryRequest):
     query = request.question
-    context = retrieval_agent(query)
-    answer = summarization_agent(context, query)
-    verdict = factcheck_agent(answer, query)
+    docs = hybrid_search(query)
+    context = "\n".join([d.page_content for d in docs])
+    prompt = f"Answer this question using the context below.\n\nContext:\n{context}\n\nQuestion: {query}"
+    response = llm.invoke(prompt)
     return {
         "question": query,
-        "answer": answer,
-        "fact_check": verdict
+        "answer": response.content
     }
